@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "34158963494",
+    "project_id": "reys-fc7bc",
+    "storage_bucket": "reys-fc7bc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:34158963494:android:b1c7cfef9cd286ab146fe7",
+        "android_client_info": {
+          "package_name": "com.its411.its411_project"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD8SPXyT22mvCHItegIcnLc7F6T8cLZgY4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
