@@ -37,13 +37,14 @@ export default function Menu() {
   const [thoughts, setThoughts] = useState<Thought[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingThoughtId, setEditingThoughtId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showMenu, setShowMenu] = useState(false);
 
   useEffect(() => {
     const unsubscribeAuth = auth().onAuthStateChanged(user => {
       if (user) {
         setUserEmail(user.email ?? null);
 
-        // Listen to all thoughts (feed) ordered by newest first
         const q = firestore().collection('thoughts').orderBy('createdAt', 'desc');
 
         const unsubscribeSnap = q.onSnapshot(
@@ -161,39 +162,205 @@ export default function Menu() {
     }
   }
 
+  function getInitials(email: string | undefined) {
+    if (!email) return '?';
+    return email.charAt(0).toUpperCase();
+  }
+
+  function getAvatarColor(email: string | undefined) {
+    if (!email) return '#999';
+    const colors = ['#C4A57B', '#B89968', '#A68A64', '#D4B896', '#8B7355'];
+    const index = (email?.charCodeAt(0) || 0) % colors.length;
+    return colors[index];
+  }
+
+  const filteredThoughts = searchQuery
+    ? thoughts.filter(t => 
+        t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        t.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        t.tag.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : thoughts;
+
   return (
-    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.subtitle}>Logged in as {userEmail}</Text>
+    <View style={styles.container}>
+      {/* Top Black Dot */}
+      <View style={styles.topDot} />
 
-        <TouchableOpacity style={styles.addItemContainer} onPress={() => setShowForm(true)}>
-          <Text style={styles.plusIcon}>＋</Text>
-          <Text style={styles.addItemText}>Add New Thought</Text>
-        </TouchableOpacity>
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.headerContent}>
+          <View style={styles.logoContainer}>
+            <View style={styles.logo}>
+              <Text style={styles.logoText}>ReyRTalk</Text>
+              <Text style={styles.logoIcon}>💬</Text>
+              <Text style={styles.logoSubtext}>Notes</Text>
+              <Text style={styles.logoStars}>★ ★ ★</Text>
+            </View>
+          </View>
+          <View style={styles.searchContainer}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search"
+              placeholderTextColor="#999"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            <TouchableOpacity style={styles.searchButton}>
+              <View style={styles.searchIconCircle}>
+                <Text style={styles.searchIcon}>🔍</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity style={styles.menuButton} onPress={() => setShowMenu(!showMenu)}>
+            <View style={styles.menuLine} />
+            <View style={styles.menuLine} />
+            <View style={styles.menuLine} />
+          </TouchableOpacity>
+        </View>
 
-        {/* Thought Form Modal */}
-        <Modal visible={showForm} animationType="slide" transparent={true} onRequestClose={() => setShowForm(false)}>
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>{editingThoughtId ? 'Edit Thought' : 'Add Thought'}</Text>
+        {/* Dropdown Menu */}
+        {showMenu && (
+          <View style={styles.dropdownMenu}>
+            <TouchableOpacity style={styles.menuItem} onPress={() => setShowMenu(false)}>
+              <Text style={styles.menuItemText}>Home 🏠</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); setShowForm(true); }}>
+              <Text style={styles.menuItemText}>My Thoughts ✍️</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => setShowMenu(false)}>
+              <Text style={styles.menuItemText}>Profile 👤</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => setShowMenu(false)}>
+              <Text style={styles.menuItemText}>Settings ⚙️</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => setShowMenu(false)}>
+              <Text style={styles.menuItemText}>About ℹ️</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.menuItem, styles.menuItemLast]} 
+              onPress={() => {
+                setShowMenu(false);
+                auth().signOut().then(() => router.replace('/'));
+              }}
+            >
+              <Text style={styles.menuItemText}>Logout 🚪</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
 
-              <TextInput style={styles.input} placeholder="Title" value={thoughtTitle} onChangeText={setThoughtTitle} placeholderTextColor="#888" />
-              <TextInput style={[styles.input, { height: 90 }]} placeholder="Description" value={thoughtDescription} onChangeText={setThoughtDescription} multiline placeholderTextColor="#888" />
-              <TextInput style={styles.input} placeholder="Tag" value={thoughtTag} onChangeText={setThoughtTag} placeholderTextColor="#888" />
+      {/* Side Dots */}
+      <View style={styles.sideDotsContainer}>
+        {[...Array(30)].map((_, i) => (
+          <View key={i} style={styles.sideDot} />
+        ))}
+      </View>
 
-              <TouchableOpacity style={[styles.epiphanyToggle, isEpiphany && styles.epiphanyActive]} onPress={() => setIsEpiphany(!isEpiphany)}>
-                <Text style={[styles.epiphanyText, isEpiphany && styles.epiphanyTextActive]}>
-                  {isEpiphany ? '🌟 Epiphany!' : 'Mark as Epiphany'}
+      {/* Thought Feed */}
+      <ScrollView style={styles.feedContainer} contentContainerStyle={styles.feedContent}>
+        {filteredThoughts.length === 0 ? (
+          <Text style={styles.noItems}>No thoughts yet.</Text>
+        ) : (
+          filteredThoughts.map(thought => (
+            <View key={thought.id} style={styles.postWrapper}>
+              <View style={styles.postCard}>
+                <View style={styles.postHeader}>
+                  <View style={[styles.avatar, { backgroundColor: getAvatarColor(thought.createdBy?.email) }]}>
+                    <Text style={styles.avatarText}>{getInitials(thought.createdBy?.email)}</Text>
+                  </View>
+                  <Text style={styles.userName}>{thought.createdBy?.email?.split('@')[0] || 'Unknown'}</Text>
+                </View>
+
+                <Text style={styles.postContent}>
+                  "{thought.description}" {thought.epiphany && '⭐'}
                 </Text>
-              </TouchableOpacity>
+                
+                <Text style={styles.postTime}>
+                  {thought.createdAt 
+                    ? new Date(thought.createdAt.seconds * 1000).toLocaleString('en-US', { 
+                        weekday: 'short',
+                        hour: 'numeric', 
+                        minute: '2-digit', 
+                        hour12: true 
+                      })
+                    : 'Mon   9:30 AM'}
+                </Text>
 
-              {message ? <Text style={styles.message}>{message}</Text> : null}
+                {/* Action Buttons */}
+                {thought.createdBy?.uid === auth().currentUser?.uid && (
+                  <View style={styles.postActions}>
+                    <TouchableOpacity style={styles.actionButton} onPress={() => openFormForEdit(thought)}>
+                      <Text style={styles.actionButtonText}>Edit</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.actionButton} onPress={() => confirmDelete(thought.id!)}>
+                      <Text style={styles.actionButtonText}>Delete</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.actionButton} onPress={() => toggleEpiphany(thought)}>
+                      <Text style={styles.actionButtonText}>
+                        {thought.epiphany ? 'Unmark ⭐' : 'Mark ⭐'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            </View>
+          ))
+        )}
+      </ScrollView>
 
-              <TouchableOpacity style={styles.button} onPress={handleSubmit}>
-                <Text style={styles.buttonText}>{editingThoughtId ? 'Update' : 'Submit'}</Text>
-              </TouchableOpacity>
+      {/* Floating Add Button */}
+      <TouchableOpacity style={styles.floatingButton} onPress={() => setShowForm(true)}>
+        <Text style={styles.floatingButtonText}>+</Text>
+      </TouchableOpacity>
 
-              <TouchableOpacity style={[styles.button, styles.secondaryButton]} onPress={() => {
+      {/* Thought Form Modal */}
+      <Modal visible={showForm} animationType="slide" transparent={true} onRequestClose={() => setShowForm(false)}>
+        <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>{editingThoughtId ? 'Edit Thought' : 'Add New Thought'}</Text>
+
+            <TextInput
+              style={styles.input}
+              placeholder="Title"
+              value={thoughtTitle}
+              onChangeText={setThoughtTitle}
+              placeholderTextColor="#888"
+            />
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              placeholder="What's on your mind?"
+              value={thoughtDescription}
+              onChangeText={setThoughtDescription}
+              multiline
+              placeholderTextColor="#888"
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Tag"
+              value={thoughtTag}
+              onChangeText={setThoughtTag}
+              placeholderTextColor="#888"
+            />
+
+            <TouchableOpacity
+              style={[styles.epiphanyToggle, isEpiphany && styles.epiphanyActive]}
+              onPress={() => setIsEpiphany(!isEpiphany)}
+            >
+              <Text style={styles.epiphanyText}>
+                {isEpiphany ? '⭐ Epiphany!' : 'Mark as Epiphany'}
+              </Text>
+            </TouchableOpacity>
+
+            {message ? <Text style={styles.message}>{message}</Text> : null}
+
+            <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
+              <Text style={styles.submitButtonText}>{editingThoughtId ? 'UPDATE' : 'SUBMIT'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={() => {
                 setShowForm(false);
                 setEditingThoughtId(null);
                 setThoughtTitle('');
@@ -201,101 +368,356 @@ export default function Menu() {
                 setThoughtTag('');
                 setIsEpiphany(false);
                 setMessage('');
-              }}>
-                <Text style={[styles.buttonText, styles.secondaryButtonText]}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
+              }}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
           </View>
-        </Modal>
-
-        <Text style={styles.sectionTitle}>Thought Feed</Text>
-
-        {thoughts.length === 0 ? (
-          <Text style={styles.noItems}>No thoughts yet.</Text>
-        ) : (
-          <View style={styles.itemsContainer}>
-            {thoughts.map(thought => (
-              <View key={thought.id} style={[styles.itemCard, thought.epiphany && styles.epiphanyCard]}>
-                <View style={styles.thoughtHeader}>
-                  <Text style={styles.itemName}>{thought.title}</Text>
-                  {thought.epiphany && <Text style={styles.epiphanyBadge}>🌟 Epiphany</Text>}
-                </View>
-                <Text style={styles.itemDescription}>{thought.description}</Text>
-                <Text style={styles.itemTag}>#{thought.tag}</Text>
-                <Text style={styles.postInfo}>
-                  Posted by {thought.createdBy?.email || 'Unknown'} on {thought.createdAt ? new Date(thought.createdAt.seconds * 1000).toLocaleString() : '...'}
-                </Text>
-
-                <View style={styles.cardActions}>
-                  {thought.createdBy?.uid === auth().currentUser?.uid && (
-                    <>
-                      <TouchableOpacity style={styles.cardButton} onPress={() => openFormForEdit(thought)}>
-                        <Text style={styles.cardButtonText}>Edit</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[styles.cardButton, styles.deleteButton]} onPress={() => confirmDelete(thought.id!)}>
-                        <Text style={[styles.cardButtonText, styles.deleteButtonText]}>Delete</Text>
-                      </TouchableOpacity>
-                    </>
-                  )}
-                  <TouchableOpacity style={[styles.cardButton, styles.epiphanyToggleBtn]} onPress={() => toggleEpiphany(thought)}>
-                    <Text style={[styles.cardButtonText, thought.epiphany && styles.epiphanyTextActive]}>
-                      {thought.epiphany ? 'Unmark Epiphany' : 'Mark Epiphany'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))}
-          </View>
-        )}
-
-        <TouchableOpacity
-          style={styles.logoutButton}
-          onPress={() => auth().signOut().then(() => router.replace('/'))}
-        >
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#eaf9e2' },
-  scrollContent: { padding: 20, paddingBottom: 40 },
-  subtitle: { fontSize: 18, color: '#2a9d8f', textAlign: 'center', marginBottom: 20 },
-  addItemContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 20, justifyContent: 'center' },
-  plusIcon: { fontSize: 40, color: '#264653', marginRight: 10 },
-  addItemText: { fontSize: 18, fontWeight: '600', color: '#264653' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { backgroundColor: '#fff', padding: 20, borderRadius: 16, width: '90%', maxWidth: 420, elevation: 5 },
-  modalTitle: { fontSize: 22, fontWeight: '600', color: '#264653', textAlign: 'center', marginBottom: 20 },
-  input: { borderWidth: 1, borderColor: '#264653', borderRadius: 8, padding: 12, marginBottom: 15, fontSize: 16, color: '#333', backgroundColor: '#fafafa' },
-  epiphanyToggle: { padding: 8, borderRadius: 8, backgroundColor: '#f1f8f6', borderWidth: 1, borderColor: '#264653', marginBottom: 10, alignItems: 'center' },
-  epiphanyActive: { backgroundColor: '#ffe066', borderColor: '#e9c46a' },
-  epiphanyText: { color: '#264653', fontWeight: '600' },
-  epiphanyTextActive: { color: '#e63946' },
-  message: { color: '#e63946', textAlign: 'center', marginBottom: 15 },
-  button: { backgroundColor: '#264653', padding: 15, borderRadius: 8, marginBottom: 10, alignItems: 'center' },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  secondaryButton: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#264653' },
-  secondaryButtonText: { color: '#264653' },
-  sectionTitle: { fontSize: 20, fontWeight: '600', marginBottom: 10, color: '#264653' },
-  itemsContainer: { marginBottom: 20 },
-  itemCard: { backgroundColor: '#fff', borderRadius: 12, padding: 20, marginBottom: 15, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 6, elevation: 5 },
-  epiphanyCard: { borderWidth: 2, borderColor: '#ffe066', backgroundColor: '#fffbe6' },
-  thoughtHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 },
-  epiphanyBadge: { backgroundColor: '#ffe066', color: '#e63946', fontWeight: 'bold', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, fontSize: 14 },
-  itemName: { fontSize: 18, fontWeight: '600', color: '#264653' },
-  itemDescription: { fontSize: 14, color: '#666' },
-  itemTag: { fontSize: 14, color: '#264653', marginBottom: 4 },
-  postInfo: { fontSize: 12, color: '#555', fontStyle: 'italic', marginBottom: 6 },
-  cardActions: { flexDirection: 'row', justifyContent: 'flex-start', flexWrap: 'wrap', marginTop: 10 },
-  cardButton: { backgroundColor: '#264653', padding: 8, borderRadius: 6, alignItems: 'center', justifyContent: 'center', marginRight: 5, marginBottom: 5 },
-  cardButtonText: { color: '#fff', fontSize: 14 },
-  deleteButton: { backgroundColor: '#e63946' },
-  deleteButtonText: { color: '#fff' },
-  epiphanyToggleBtn: { backgroundColor: '#ffe066' },
-  noItems: { textAlign: 'center', color: '#888', fontSize: 16, marginBottom: 20 },
-  logoutButton: { backgroundColor: '#e63946', padding: 15, borderRadius: 8, marginTop: 10, alignItems: 'center' },
-  logoutText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  container: {
+    flex: 1,
+    backgroundColor: '#e8e8e8',
+  },
+  topDot: {
+    position: 'absolute',
+    top: 12,
+    left: '50%',
+    marginLeft: -10,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#000',
+    zIndex: 10,
+  },
+  header: {
+    backgroundColor: '#f5f5f5',
+    paddingTop: 40,
+    paddingBottom: 15,
+    paddingHorizontal: 15,
+    borderBottomWidth: 2,
+    borderBottomColor: '#000',
+  },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  logoContainer: {
+    marginRight: 10,
+  },
+  logo: {
+    width: 55,
+    height: 55,
+    borderRadius: 27.5,
+    backgroundColor: '#fff',
+    borderWidth: 3,
+    borderColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 2,
+  },
+  logoText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#000',
+    lineHeight: 10,
+  },
+  logoIcon: {
+    fontSize: 10,
+    marginVertical: -1,
+  },
+  logoSubtext: {
+    fontSize: 8,
+    fontWeight: '700',
+    color: '#000',
+    lineHeight: 9,
+  },
+  logoStars: {
+    fontSize: 7,
+    color: '#000',
+    letterSpacing: 1,
+  },
+  searchContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#000',
+    paddingLeft: 12,
+    paddingRight: 4,
+    height: 36,
+    marginRight: 10,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#333',
+  },
+  searchButton: {
+    padding: 4,
+  },
+  searchIconCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  searchIcon: {
+    fontSize: 12,
+  },
+  menuButton: {
+    padding: 5,
+    flexDirection: 'column',
+    gap: 4,
+  },
+  menuLine: {
+    width: 24,
+    height: 3,
+    backgroundColor: '#000',
+    borderRadius: 1.5,
+  },
+  dropdownMenu: {
+    position: 'absolute',
+    top: 60,
+    right: 15,
+    backgroundColor: '#999',
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#000',
+    minWidth: 180,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 8,
+    zIndex: 100,
+  },
+  menuItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#777',
+  },
+  menuItemLast: {
+    borderBottomWidth: 0,
+  },
+  menuItemText: {
+    fontSize: 15,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  sideDotsContainer: {
+    position: 'absolute',
+    left: 10,
+    top: 110,
+    bottom: 20,
+    flexDirection: 'column',
+    gap: 15,
+    zIndex: 1,
+    paddingBottom: 10,
+  },
+  sideDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#000',
+  },
+  feedContainer: {
+    flex: 1,
+  },
+  feedContent: {
+    padding: 15,
+    paddingLeft: 35,
+    paddingBottom: 100,
+  },
+  postWrapper: {
+    marginBottom: 15,
+  },
+  postCard: {
+    backgroundColor: '#d9d9d9',
+    borderRadius: 15,
+    padding: 15,
+    borderWidth: 2,
+    borderColor: '#000',
+  },
+  postHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+    borderWidth: 2,
+    borderColor: '#000',
+  },
+  avatarText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  userName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#000',
+  },
+  postContent: {
+    fontSize: 14,
+    color: '#000',
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  postTime: {
+    fontSize: 11,
+    color: '#666',
+  },
+  postActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#999',
+  },
+  actionButton: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    marginRight: 8,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: '#000',
+  },
+  actionButtonText: {
+    fontSize: 12,
+    color: '#000',
+    fontWeight: '600',
+  },
+  floatingButton: {
+    position: 'absolute',
+    bottom: 30,
+    right: 20,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#999',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
+    borderWidth: 2,
+    borderColor: '#000',
+  },
+  floatingButtonText: {
+    fontSize: 36,
+    color: '#fff',
+    fontWeight: '300',
+  },
+  noItems: {
+    textAlign: 'center',
+    color: '#666',
+    fontSize: 16,
+    marginTop: 40,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    padding: 25,
+    borderRadius: 12,
+    width: '90%',
+    maxWidth: 420,
+    borderWidth: 2,
+    borderColor: '#000',
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#000',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  input: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 15,
+    fontSize: 15,
+    color: '#333',
+    borderWidth: 1,
+    borderColor: '#000',
+  },
+  textArea: {
+    height: 100,
+    textAlignVertical: 'top',
+  },
+  epiphanyToggle: {
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#f5f5f5',
+    marginBottom: 15,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#000',
+  },
+  epiphanyActive: {
+    backgroundColor: '#ffe066',
+    borderColor: '#000',
+  },
+  epiphanyText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#000',
+  },
+  message: {
+    color: '#6b9fad',
+    textAlign: 'center',
+    marginBottom: 15,
+    fontSize: 14,
+  },
+  submitButton: {
+    backgroundColor: '#6b9fad',
+    padding: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 10,
+    borderWidth: 2,
+    borderColor: '#000',
+  },
+  submitButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 1,
+  },
+  cancelButton: {
+    padding: 15,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontSize: 16,
+  },
 });
