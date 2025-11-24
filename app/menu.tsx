@@ -39,11 +39,29 @@ export default function Menu() {
   const [editingThoughtId, setEditingThoughtId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showMenu, setShowMenu] = useState(false);
+  const [currentView, setCurrentView] = useState<'feed' | 'profile' | 'settings' | 'about'>('feed');
+  const [darkMode, setDarkMode] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [displayName, setDisplayName] = useState('');
+  const [bio, setBio] = useState('');
+  const [profileImage, setProfileImage] = useState('');
 
   useEffect(() => {
     const unsubscribeAuth = auth().onAuthStateChanged(user => {
       if (user) {
         setUserEmail(user.email ?? null);
+        
+        // Load user profile data
+        const userDoc = firestore().collection('users').doc(user.uid);
+        userDoc.get().then(doc => {
+          if (doc.exists) {
+            const data = doc.data();
+            setDisplayName(data?.displayName || '');
+            setBio(data?.bio || '');
+            setProfileImage(data?.profileImage || '');
+            setDarkMode(data?.darkMode || false);
+          }
+        });
 
         const q = firestore().collection('thoughts').orderBy('createdAt', 'desc');
 
@@ -162,6 +180,42 @@ export default function Menu() {
     }
   }
 
+  async function saveProfile() {
+    const currentUser = auth().currentUser;
+    if (!currentUser) return;
+
+    try {
+      await firestore().collection('users').doc(currentUser.uid).set({
+        displayName,
+        bio,
+        profileImage,
+        email: currentUser.email,
+        updatedAt: firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      
+      setEditingProfile(false);
+      Alert.alert('Success', 'Profile updated successfully!');
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to update profile.');
+    }
+  }
+
+  async function toggleDarkMode() {
+    const currentUser = auth().currentUser;
+    if (!currentUser) return;
+
+    const newDarkMode = !darkMode;
+    setDarkMode(newDarkMode);
+
+    try {
+      await firestore().collection('users').doc(currentUser.uid).set({
+        darkMode: newDarkMode,
+      }, { merge: true });
+    } catch (error: any) {
+      console.error('Failed to save dark mode preference', error);
+    }
+  }
+
   function getInitials(email: string | undefined) {
     if (!email) return '?';
     return email.charAt(0).toUpperCase();
@@ -183,12 +237,12 @@ export default function Menu() {
     : thoughts;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, darkMode && styles.containerDark]}>
       {/* Top Black Dot */}
       <View style={styles.topDot} />
 
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, darkMode && styles.headerDark]}>
         <View style={styles.headerContent}>
           <View style={styles.logoContainer}>
             <View style={styles.logo}>
@@ -222,19 +276,34 @@ export default function Menu() {
         {/* Dropdown Menu */}
         {showMenu && (
           <View style={styles.dropdownMenu}>
-            <TouchableOpacity style={styles.menuItem} onPress={() => setShowMenu(false)}>
+            <TouchableOpacity 
+              style={styles.menuItem} 
+              onPress={() => { setShowMenu(false); setCurrentView('feed'); }}
+            >
               <Text style={styles.menuItemText}>Home 🏠</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); setShowForm(true); }}>
+            <TouchableOpacity 
+              style={styles.menuItem} 
+              onPress={() => { setShowMenu(false); setShowForm(true); }}
+            >
               <Text style={styles.menuItemText}>My Thoughts ✍️</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => setShowMenu(false)}>
+            <TouchableOpacity 
+              style={styles.menuItem} 
+              onPress={() => { setShowMenu(false); setCurrentView('profile'); }}
+            >
               <Text style={styles.menuItemText}>Profile 👤</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => setShowMenu(false)}>
+            <TouchableOpacity 
+              style={styles.menuItem} 
+              onPress={() => { setShowMenu(false); setCurrentView('settings'); }}
+            >
               <Text style={styles.menuItemText}>Settings ⚙️</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => setShowMenu(false)}>
+            <TouchableOpacity 
+              style={styles.menuItem} 
+              onPress={() => { setShowMenu(false); setCurrentView('about'); }}
+            >
               <Text style={styles.menuItemText}>About ℹ️</Text>
             </TouchableOpacity>
             <TouchableOpacity 
@@ -257,62 +326,261 @@ export default function Menu() {
         ))}
       </View>
 
-      {/* Thought Feed */}
-      <ScrollView style={styles.feedContainer} contentContainerStyle={styles.feedContent}>
-        {filteredThoughts.length === 0 ? (
-          <Text style={styles.noItems}>No thoughts yet.</Text>
-        ) : (
-          filteredThoughts.map(thought => (
-            <View key={thought.id} style={styles.postWrapper}>
-              <View style={styles.postCard}>
-                <View style={styles.postHeader}>
-                  <View style={[styles.avatar, { backgroundColor: getAvatarColor(thought.createdBy?.email) }]}>
-                    <Text style={styles.avatarText}>{getInitials(thought.createdBy?.email)}</Text>
+      {/* Main Content Area */}
+      {currentView === 'feed' && (
+        <>
+          {/* Thought Feed */}
+          <ScrollView style={styles.feedContainer} contentContainerStyle={styles.feedContent}>
+            {filteredThoughts.length === 0 ? (
+              <Text style={styles.noItems}>No thoughts yet.</Text>
+            ) : (
+              filteredThoughts.map(thought => (
+                <View key={thought.id} style={styles.postWrapper}>
+                  <View style={styles.postCard}>
+                    <View style={styles.postHeader}>
+                      <View style={[styles.avatar, { backgroundColor: getAvatarColor(thought.createdBy?.email) }]}>
+                        <Text style={styles.avatarText}>{getInitials(thought.createdBy?.email)}</Text>
+                      </View>
+                      <Text style={styles.userName}>{thought.createdBy?.email?.split('@')[0] || 'Unknown'}</Text>
+                    </View>
+
+                    <Text style={styles.postContent}>
+                      "{thought.description}" {thought.epiphany && '⭐'}
+                    </Text>
+                    
+                    <Text style={styles.postTime}>
+                      {thought.createdAt 
+                        ? new Date(thought.createdAt.seconds * 1000).toLocaleString('en-US', { 
+                            weekday: 'short',
+                            hour: 'numeric', 
+                            minute: '2-digit', 
+                            hour12: true 
+                          })
+                        : 'Mon   9:30 AM'}
+                    </Text>
+
+                    {/* Action Buttons */}
+                    {thought.createdBy?.uid === auth().currentUser?.uid && (
+                      <View style={styles.postActions}>
+                        <TouchableOpacity style={styles.actionButton} onPress={() => openFormForEdit(thought)}>
+                          <Text style={styles.actionButtonText}>Edit</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.actionButton} onPress={() => confirmDelete(thought.id!)}>
+                          <Text style={styles.actionButtonText}>Delete</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.actionButton} onPress={() => toggleEpiphany(thought)}>
+                          <Text style={styles.actionButtonText}>
+                            {thought.epiphany ? 'Unmark ⭐' : 'Mark ⭐'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </View>
-                  <Text style={styles.userName}>{thought.createdBy?.email?.split('@')[0] || 'Unknown'}</Text>
                 </View>
+              ))
+            )}
+          </ScrollView>
 
-                <Text style={styles.postContent}>
-                  "{thought.description}" {thought.epiphany && '⭐'}
-                </Text>
-                
-                <Text style={styles.postTime}>
-                  {thought.createdAt 
-                    ? new Date(thought.createdAt.seconds * 1000).toLocaleString('en-US', { 
-                        weekday: 'short',
-                        hour: 'numeric', 
-                        minute: '2-digit', 
-                        hour12: true 
-                      })
-                    : 'Mon   9:30 AM'}
-                </Text>
+          {/* Floating Add Button */}
+          <TouchableOpacity style={styles.floatingButton} onPress={() => setShowForm(true)}>
+            <Text style={styles.floatingButtonText}>+</Text>
+          </TouchableOpacity>
+        </>
+      )}
 
-                {/* Action Buttons */}
-                {thought.createdBy?.uid === auth().currentUser?.uid && (
-                  <View style={styles.postActions}>
-                    <TouchableOpacity style={styles.actionButton} onPress={() => openFormForEdit(thought)}>
-                      <Text style={styles.actionButtonText}>Edit</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionButton} onPress={() => confirmDelete(thought.id!)}>
-                      <Text style={styles.actionButtonText}>Delete</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionButton} onPress={() => toggleEpiphany(thought)}>
-                      <Text style={styles.actionButtonText}>
-                        {thought.epiphany ? 'Unmark ⭐' : 'Mark ⭐'}
-                      </Text>
-                    </TouchableOpacity>
+      {/* Profile View */}
+      {currentView === 'profile' && (
+        <ScrollView style={styles.feedContainer} contentContainerStyle={styles.feedContent}>
+          <View style={styles.pageContainer}>
+            <Text style={[styles.pageTitle, darkMode && styles.textDark]}>Profile 👤</Text>
+            
+            <View style={[styles.profileCard, darkMode && styles.cardDark]}>
+              {editingProfile ? (
+                <>
+                  <TouchableOpacity 
+                    style={[styles.profileAvatar, { backgroundColor: getAvatarColor(userEmail || undefined) }]}
+                    onPress={() => Alert.alert('Profile Picture', 'Choose a profile picture emoji or color')}
+                  >
+                    <Text style={styles.profileAvatarText}>
+                      {profileImage || getInitials(userEmail || undefined)}
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  <Text style={[styles.profileLabel, darkMode && styles.textDark]}>Emoji for Profile (e.g., 😊, 🎨, 🚀)</Text>
+                  <TextInput
+                    style={[styles.input, darkMode && styles.inputDark]}
+                    placeholder="Enter emoji"
+                    placeholderTextColor={darkMode ? '#999' : '#888'}
+                    value={profileImage}
+                    onChangeText={setProfileImage}
+                  />
+
+                  <Text style={[styles.profileLabel, darkMode && styles.textDark]}>Display Name</Text>
+                  <TextInput
+                    style={[styles.input, darkMode && styles.inputDark]}
+                    placeholder="Your name"
+                    placeholderTextColor={darkMode ? '#999' : '#888'}
+                    value={displayName}
+                    onChangeText={setDisplayName}
+                  />
+
+                  <Text style={[styles.profileLabel, darkMode && styles.textDark]}>Bio</Text>
+                  <TextInput
+                    style={[styles.input, styles.textArea, darkMode && styles.inputDark]}
+                    placeholder="Tell us about yourself..."
+                    placeholderTextColor={darkMode ? '#999' : '#888'}
+                    value={bio}
+                    onChangeText={setBio}
+                    multiline
+                  />
+
+                  <TouchableOpacity style={styles.profileButton} onPress={saveProfile}>
+                    <Text style={styles.profileButtonText}>Save Profile</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    style={[styles.profileButton, styles.secondaryProfileButton]} 
+                    onPress={() => setEditingProfile(false)}
+                  >
+                    <Text style={[styles.profileButtonText, styles.secondaryProfileButtonText]}>Cancel</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <View style={[styles.profileAvatar, { backgroundColor: getAvatarColor(userEmail || undefined) }]}>
+                    <Text style={styles.profileAvatarText}>
+                      {profileImage || getInitials(userEmail || undefined)}
+                    </Text>
                   </View>
-                )}
-              </View>
-            </View>
-          ))
-        )}
-      </ScrollView>
+                  
+                  <Text style={[styles.profileName, darkMode && styles.textDark]}>
+                    {displayName || userEmail?.split('@')[0] || 'User'}
+                  </Text>
+                  <Text style={[styles.profileEmail, darkMode && styles.textDark]}>{userEmail}</Text>
+                  
+                  {bio ? (
+                    <Text style={[styles.profileBio, darkMode && styles.textDark]}>{bio}</Text>
+                  ) : null}
+                  
+                  <View style={styles.statsContainer}>
+                    <View style={styles.statItem}>
+                      <Text style={[styles.statNumber, darkMode && styles.textDark]}>
+                        {thoughts.filter(t => t.createdBy?.uid === auth().currentUser?.uid).length}
+                      </Text>
+                      <Text style={styles.statLabel}>My Thoughts</Text>
+                    </View>
+                    <View style={styles.statItem}>
+                      <Text style={[styles.statNumber, darkMode && styles.textDark]}>
+                        {thoughts.filter(t => t.createdBy?.uid === auth().currentUser?.uid && t.epiphany).length}
+                      </Text>
+                      <Text style={styles.statLabel}>Epiphanies</Text>
+                    </View>
+                  </View>
 
-      {/* Floating Add Button */}
-      <TouchableOpacity style={styles.floatingButton} onPress={() => setShowForm(true)}>
-        <Text style={styles.floatingButtonText}>+</Text>
-      </TouchableOpacity>
+                  <TouchableOpacity style={styles.profileButton} onPress={() => setEditingProfile(true)}>
+                    <Text style={styles.profileButtonText}>Edit Profile</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    style={[styles.profileButton, styles.secondaryProfileButton]} 
+                    onPress={() => setCurrentView('feed')}
+                  >
+                    <Text style={[styles.profileButtonText, styles.secondaryProfileButtonText]}>Back to Feed</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+          </View>
+        </ScrollView>
+      )}
+
+      {/* Settings View */}
+      {currentView === 'settings' && (
+        <ScrollView style={styles.feedContainer} contentContainerStyle={styles.feedContent}>
+          <View style={styles.pageContainer}>
+            <Text style={[styles.pageTitle, darkMode && styles.textDark]}>Settings ⚙️</Text>
+            
+            <View style={[styles.settingsCard, darkMode && styles.cardDark]}>
+              <View style={styles.settingItem}>
+                <Text style={[styles.settingLabel, darkMode && styles.textDark]}>Email</Text>
+                <Text style={styles.settingValue}>{userEmail}</Text>
+              </View>
+              
+              <View style={styles.settingItem}>
+                <Text style={[styles.settingLabel, darkMode && styles.textDark]}>Theme</Text>
+                <TouchableOpacity 
+                  style={[styles.toggleButton, darkMode && styles.toggleButtonActive]}
+                  onPress={toggleDarkMode}
+                >
+                  <Text style={styles.toggleButtonText}>
+                    {darkMode ? '🌙 Dark Mode' : '☀️ Light Mode'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.settingItem}>
+                <Text style={[styles.settingLabel, darkMode && styles.textDark]}>Notifications</Text>
+                <Text style={styles.settingValue}>Enabled</Text>
+              </View>
+              
+              <View style={styles.settingItem}>
+                <Text style={[styles.settingLabel, darkMode && styles.textDark]}>Privacy</Text>
+                <Text style={styles.settingValue}>Public</Text>
+              </View>
+
+              <TouchableOpacity style={styles.profileButton} onPress={() => setCurrentView('feed')}>
+                <Text style={styles.profileButtonText}>Back to Feed</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </ScrollView>
+      )}
+
+      {/* About View */}
+      {currentView === 'about' && (
+        <ScrollView style={styles.feedContainer} contentContainerStyle={styles.feedContent}>
+          <View style={styles.pageContainer}>
+            <Text style={styles.aboutPageTitle}>ABOUT</Text>
+            
+            <View style={styles.aboutCard}>
+              <Text style={styles.aboutAppName}>ReyRTalk Notes</Text>
+              
+              <View style={styles.aboutSection}>
+                <Text style={styles.aboutSectionTitle}>Description:</Text>
+                <Text style={styles.aboutText}>
+                  Tikalon Notes is a simple mobile app where you can freely write, share, and reflect on your random thoughts ✨. Whether it's a deep idea, a funny memory, or just something you want to remember, this app is your personal space for capturing moments and feelings.
+                </Text>
+              </View>
+
+              <View style={styles.aboutSection}>
+                <Text style={styles.aboutSectionTitle}>Features:</Text>
+                <Text style={styles.aboutFeature}>• ✍️ Write and save your random thoughts</Text>
+                <Text style={styles.aboutFeature}>• 🔍 Search your saved notes anytime</Text>
+                <Text style={styles.aboutFeature}>• ⭐ Mark your favorite thoughts</Text>
+                <Text style={styles.aboutFeature}>• 🔒 Secure storage with Firebase database</Text>
+                <Text style={styles.aboutFeature}>• 🌙 Simple and clean dark-themed design</Text>
+              </View>
+              
+              <View style={styles.aboutSection}>
+                <Text style={styles.aboutSectionTitle}>What Makes Tikalon Notes Unique:</Text>
+                <Text style={styles.aboutNumberedItem}>
+                  1. 🌐 Ilonggo + English Support – Users can enjoy a bilingual experience, making the app more culturally connected and unique.
+                </Text>
+                <Text style={styles.aboutNumberedItem}>
+                  2. 😊 Mood-based Thoughts – Tag your notes with moods and see your thoughts come alive with emojis and colors.
+                </Text>
+                <Text style={styles.aboutNumberedItem}>
+                  3. 💡 Random Thought of the Day – Get daily inspiration or reflection delivered right inside the app.
+                </Text>
+              </View>
+
+              <TouchableOpacity style={styles.profileButton} onPress={() => setCurrentView('feed')}>
+                <Text style={styles.profileButtonText}>Back to Feed</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </ScrollView>
+      )}
 
       {/* Thought Form Modal */}
       <Modal visible={showForm} animationType="slide" transparent={true} onRequestClose={() => setShowForm(false)}>
@@ -384,6 +652,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#e8e8e8',
   },
+  containerDark: {
+    backgroundColor: '#1a1a1a',
+  },
   topDot: {
     position: 'absolute',
     top: 12,
@@ -402,6 +673,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     borderBottomWidth: 2,
     borderBottomColor: '#000',
+  },
+  headerDark: {
+    backgroundColor: '#2a2a2a',
   },
   headerContent: {
     flexDirection: 'row',
@@ -719,5 +993,198 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     color: '#666',
     fontSize: 16,
+  },
+  pageContainer: {
+    flex: 1,
+    padding: 20,
+  },
+  pageTitle: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#000',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  aboutPageTitle: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#000',
+    marginBottom: 15,
+    textAlign: 'center',
+    letterSpacing: 2,
+  },
+  profileCard: {
+    backgroundColor: '#fff',
+    borderRadius: 15,
+    padding: 25,
+    borderWidth: 2,
+    borderColor: '#000',
+    alignItems: 'center',
+  },
+  cardDark: {
+    backgroundColor: '#2a2a2a',
+  },
+  textDark: {
+    color: '#fff',
+  },
+  profileAvatar: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#000',
+    marginBottom: 15,
+  },
+  profileAvatarText: {
+    fontSize: 40,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  profileName: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#000',
+    marginBottom: 5,
+  },
+  profileEmail: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 10,
+  },
+  profileBio: {
+    fontSize: 15,
+    color: '#555',
+    textAlign: 'center',
+    marginBottom: 15,
+    fontStyle: 'italic',
+  },
+  profileLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    alignSelf: 'flex-start',
+    marginBottom: 5,
+    marginTop: 10,
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+    marginBottom: 20,
+    paddingVertical: 15,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  statItem: {
+    alignItems: 'center',
+  },
+  statNumber: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#000',
+  },
+  statLabel: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 5,
+  },
+  profileButton: {
+    backgroundColor: '#6b9fad',
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#000',
+    marginTop: 10,
+  },
+  profileButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  settingsCard: {
+    backgroundColor: '#fff',
+    borderRadius: 15,
+    padding: 20,
+    borderWidth: 2,
+    borderColor: '#000',
+  },
+  settingItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  settingLabel: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '600',
+  },
+  settingValue: {
+    fontSize: 16,
+    color: '#666',
+  },
+  aboutCard: {
+    backgroundColor: '#e8e8e8',
+    borderRadius: 15,
+    padding: 20,
+    borderWidth: 2,
+    borderColor: '#000',
+    shadowColor: '#000',
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 0,
+    elevation: 5,
+  },
+  aboutAppName: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#000',
+    marginBottom: 15,
+  },
+  aboutVersion: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  aboutDescription: {
+    fontSize: 15,
+    color: '#333',
+    lineHeight: 22,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  aboutSection: {
+    marginBottom: 20,
+  },
+  aboutSectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#000',
+    marginBottom: 8,
+  },
+  aboutText: {
+    fontSize: 14,
+    color: '#333',
+    lineHeight: 20,
+    marginBottom: 5,
+  },
+  aboutFeature: {
+    fontSize: 14,
+    color: '#333',
+    marginBottom: 6,
+    lineHeight: 20,
+  },
+  aboutNumberedItem: {
+    fontSize: 14,
+    color: '#333',
+    marginBottom: 10,
+    lineHeight: 20,
   },
 });
