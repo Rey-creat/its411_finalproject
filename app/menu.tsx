@@ -18,19 +18,23 @@ import {
 
 type Thought = {
   id?: string;
-  title: string;
   description: string;
-  tag: string;
   epiphany?: boolean;
   createdBy?: { uid: string; email?: string };
   createdAt?: any;
 };
 
+type UserProfile = {
+  id: string;
+  email?: string;
+  displayName?: string;
+  bio?: string;
+  profileImage?: string;
+};
+
 export default function Menu() {
   const router = useRouter();
-  const [thoughtTitle, setThoughtTitle] = useState('');
   const [thoughtDescription, setThoughtDescription] = useState('');
-  const [thoughtTag, setThoughtTag] = useState('');
   const [isEpiphany, setIsEpiphany] = useState(false);
   const [message, setMessage] = useState('');
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -45,6 +49,12 @@ export default function Menu() {
   const [displayName, setDisplayName] = useState('');
   const [bio, setBio] = useState('');
   const [profileImage, setProfileImage] = useState('');
+  
+  // Search states
+  const [searchResults, setSearchResults] = useState<Thought[]>([]);
+  const [userProfiles, setUserProfiles] = useState<UserProfile[]>([]);
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const [searchedUser, setSearchedUser] = useState<UserProfile | null>(null);
 
   useEffect(() => {
     const unsubscribeAuth = auth().onAuthStateChanged(user => {
@@ -93,9 +103,7 @@ export default function Menu() {
   }, []);
 
   function openFormForEdit(thought: Thought) {
-    setThoughtTitle(thought.title);
     setThoughtDescription(thought.description);
-    setThoughtTag(thought.tag);
     setIsEpiphany(!!thought.epiphany);
     setEditingThoughtId(thought.id ?? null);
     setShowForm(true);
@@ -103,8 +111,8 @@ export default function Menu() {
 
   async function handleSubmit() {
     setMessage('');
-    if (!thoughtTitle.trim() || !thoughtDescription.trim() || !thoughtTag.trim()) {
-      setMessage('Please fill out all fields.');
+    if (!thoughtDescription.trim()) {
+      setMessage('Please write your thought.');
       return;
     }
 
@@ -118,17 +126,13 @@ export default function Menu() {
     try {
       if (editingThoughtId) {
         await firestore().collection('thoughts').doc(editingThoughtId).update({
-          title: thoughtTitle,
           description: thoughtDescription,
-          tag: thoughtTag,
           epiphany: isEpiphany,
         });
-        setMessage(`Thought "${thoughtTitle}" updated successfully!`);
+        setMessage(`Thought updated successfully!`);
       } else {
         await firestore().collection('thoughts').add({
-          title: thoughtTitle,
           description: thoughtDescription,
-          tag: thoughtTag,
           epiphany: isEpiphany,
           createdBy: {
             uid: currentUser.uid,
@@ -136,12 +140,10 @@ export default function Menu() {
           },
           createdAt: firestore.FieldValue.serverTimestamp(),
         });
-        setMessage(`Thought "${thoughtTitle}" submitted successfully!`);
+        setMessage(`Thought submitted successfully!`);
       }
 
-      setThoughtTitle('');
       setThoughtDescription('');
-      setThoughtTag('');
       setIsEpiphany(false);
       setEditingThoughtId(null);
       setShowForm(false);
@@ -228,13 +230,68 @@ export default function Menu() {
     return colors[index];
   }
 
-  const filteredThoughts = searchQuery
-    ? thoughts.filter(t => 
-        t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        t.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        t.tag.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : thoughts;
+  async function searchUsers(query: string) {
+    if (!query.trim()) {
+      setShowSearchResults(false);
+      setSearchResults([]);
+      setSearchedUser(null);
+      return;
+    }
+
+    try {
+      // Search users by email
+      const usersSnapshot = await firestore()
+        .collection('users')
+        .where('email', '>=', query)
+        .where('email', '<=', query + '\uf8ff')
+        .get();
+
+      const users = usersSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as UserProfile[];
+
+      setUserProfiles(users);
+      
+      if (users.length > 0) {
+        // Get thoughts from the first matching user
+        const user = users[0];
+        setSearchedUser(user);
+        
+        const thoughtsSnapshot = await firestore()
+          .collection('thoughts')
+          .where('createdBy.uid', '==', user.id)
+          .orderBy('createdAt', 'desc')
+          .get();
+
+        const userThoughts = thoughtsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Thought[];
+        
+        setSearchResults(userThoughts);
+        setShowSearchResults(true);
+        setCurrentView('feed');
+      } else {
+        setSearchResults([]);
+        setShowSearchResults(false);
+        setSearchedUser(null);
+        Alert.alert('No user found', 'No user found with that email');
+      }
+    } catch (error: any) {
+      console.error('Search error', error);
+      Alert.alert('Error', 'Failed to search users');
+    }
+  }
+
+  function clearSearch() {
+    setShowSearchResults(false);
+    setSearchQuery('');
+    setSearchResults([]);
+    setSearchedUser(null);
+  }
+
+  const displayedThoughts = showSearchResults ? searchResults : thoughts;
 
   return (
     <View style={[styles.container, darkMode && styles.containerDark]}>
@@ -255,12 +312,16 @@ export default function Menu() {
           <View style={styles.searchContainer}>
             <TextInput
               style={styles.searchInput}
-              placeholder="Search"
+              placeholder="Search users by email..."
               placeholderTextColor="#999"
               value={searchQuery}
               onChangeText={setSearchQuery}
+              onSubmitEditing={() => searchUsers(searchQuery)}
             />
-            <TouchableOpacity style={styles.searchButton}>
+            <TouchableOpacity 
+              style={styles.searchButton} 
+              onPress={() => searchUsers(searchQuery)}
+            >
               <View style={styles.searchIconCircle}>
                 <Text style={styles.searchIcon}>🔍</Text>
               </View>
@@ -278,7 +339,7 @@ export default function Menu() {
           <View style={styles.dropdownMenu}>
             <TouchableOpacity 
               style={styles.menuItem} 
-              onPress={() => { setShowMenu(false); setCurrentView('feed'); }}
+              onPress={() => { setShowMenu(false); setCurrentView('feed'); clearSearch(); }}
             >
               <Text style={styles.menuItemText}>Home 🏠</Text>
             </TouchableOpacity>
@@ -290,19 +351,19 @@ export default function Menu() {
             </TouchableOpacity>
             <TouchableOpacity 
               style={styles.menuItem} 
-              onPress={() => { setShowMenu(false); setCurrentView('profile'); }}
+              onPress={() => { setShowMenu(false); setCurrentView('profile'); clearSearch(); }}
             >
               <Text style={styles.menuItemText}>Profile 👤</Text>
             </TouchableOpacity>
             <TouchableOpacity 
               style={styles.menuItem} 
-              onPress={() => { setShowMenu(false); setCurrentView('settings'); }}
+              onPress={() => { setShowMenu(false); setCurrentView('settings'); clearSearch(); }}
             >
               <Text style={styles.menuItemText}>Settings ⚙️</Text>
             </TouchableOpacity>
             <TouchableOpacity 
               style={styles.menuItem} 
-              onPress={() => { setShowMenu(false); setCurrentView('about'); }}
+              onPress={() => { setShowMenu(false); setCurrentView('about'); clearSearch(); }}
             >
               <Text style={styles.menuItemText}>About ℹ️</Text>
             </TouchableOpacity>
@@ -329,12 +390,39 @@ export default function Menu() {
       {/* Main Content Area */}
       {currentView === 'feed' && (
         <>
+          {/* Search Results Header */}
+          {showSearchResults && searchedUser && (
+            <View style={styles.searchResultsHeader}>
+              <TouchableOpacity 
+                style={styles.backButton}
+                onPress={clearSearch}
+              >
+                <Text style={styles.backButtonText}>← Back</Text>
+              </TouchableOpacity>
+              <View style={styles.searchedUserInfo}>
+                <View style={[styles.avatar, { backgroundColor: getAvatarColor(searchedUser.email) }]}>
+                  <Text style={styles.avatarText}>
+                    {searchedUser.profileImage || getInitials(searchedUser.email)}
+                  </Text>
+                </View>
+                <View>
+                  <Text style={styles.searchedUserName}>
+                    {searchedUser.displayName || searchedUser.email?.split('@')[0] || 'User'}
+                  </Text>
+                  <Text style={styles.searchedUserEmail}>{searchedUser.email}</Text>
+                </View>
+              </View>
+            </View>
+          )}
+
           {/* Thought Feed */}
           <ScrollView style={styles.feedContainer} contentContainerStyle={styles.feedContent}>
-            {filteredThoughts.length === 0 ? (
-              <Text style={styles.noItems}>No thoughts yet.</Text>
+            {displayedThoughts.length === 0 ? (
+              <Text style={styles.noItems}>
+                {showSearchResults ? 'No thoughts from this user.' : 'No thoughts yet.'}
+              </Text>
             ) : (
-              filteredThoughts.map(thought => (
+              displayedThoughts.map(thought => (
                 <View key={thought.id} style={styles.postWrapper}>
                   <View style={styles.postCard}>
                     <View style={styles.postHeader}>
@@ -359,8 +447,8 @@ export default function Menu() {
                         : 'Mon   9:30 AM'}
                     </Text>
 
-                    {/* Action Buttons */}
-                    {thought.createdBy?.uid === auth().currentUser?.uid && (
+                    {/* Action Buttons - Only show for current user's thoughts */}
+                    {!showSearchResults && thought.createdBy?.uid === auth().currentUser?.uid && (
                       <View style={styles.postActions}>
                         <TouchableOpacity style={styles.actionButton} onPress={() => openFormForEdit(thought)}>
                           <Text style={styles.actionButtonText}>Edit</Text>
@@ -381,10 +469,12 @@ export default function Menu() {
             )}
           </ScrollView>
 
-          {/* Floating Add Button */}
-          <TouchableOpacity style={styles.floatingButton} onPress={() => setShowForm(true)}>
-            <Text style={styles.floatingButtonText}>+</Text>
-          </TouchableOpacity>
+          {/* Floating Add Button - Only show when not viewing search results */}
+          {!showSearchResults && (
+            <TouchableOpacity style={styles.floatingButton} onPress={() => setShowForm(true)}>
+              <Text style={styles.floatingButtonText}>+</Text>
+            </TouchableOpacity>
+          )}
         </>
       )}
 
@@ -589,25 +679,11 @@ export default function Menu() {
             <Text style={styles.modalTitle}>{editingThoughtId ? 'Edit Thought' : 'Add New Thought'}</Text>
 
             <TextInput
-              style={styles.input}
-              placeholder="Title"
-              value={thoughtTitle}
-              onChangeText={setThoughtTitle}
-              placeholderTextColor="#888"
-            />
-            <TextInput
               style={[styles.input, styles.textArea]}
               placeholder="What's on your mind?"
               value={thoughtDescription}
               onChangeText={setThoughtDescription}
               multiline
-              placeholderTextColor="#888"
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Tag"
-              value={thoughtTag}
-              onChangeText={setThoughtTag}
               placeholderTextColor="#888"
             />
 
@@ -631,9 +707,7 @@ export default function Menu() {
               onPress={() => {
                 setShowForm(false);
                 setEditingThoughtId(null);
-                setThoughtTitle('');
                 setThoughtDescription('');
-                setThoughtTag('');
                 setIsEpiphany(false);
                 setMessage('');
               }}
@@ -814,6 +888,43 @@ const styles = StyleSheet.create({
     paddingLeft: 35,
     paddingBottom: 100,
   },
+  // Search Results Styles
+  searchResultsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ccc',
+  },
+  backButton: {
+    marginRight: 15,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#999',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#000',
+  },
+  backButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  searchedUserInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  searchedUserName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#000',
+  },
+  searchedUserEmail: {
+    fontSize: 14,
+    color: '#666',
+  },
   postWrapper: {
     marginBottom: 15,
   },
@@ -942,6 +1053,11 @@ const styles = StyleSheet.create({
     color: '#333',
     borderWidth: 1,
     borderColor: '#000',
+  },
+  inputDark: {
+    backgroundColor: '#333',
+    color: '#fff',
+    borderColor: '#555',
   },
   textArea: {
     height: 100,
@@ -1105,6 +1221,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  secondaryProfileButton: {
+    backgroundColor: 'transparent',
+    borderColor: '#999',
+  },
+  secondaryProfileButtonText: {
+    color: '#666',
+  },
   settingsCard: {
     backgroundColor: '#fff',
     borderRadius: 15,
@@ -1128,6 +1251,22 @@ const styles = StyleSheet.create({
   settingValue: {
     fontSize: 16,
     color: '#666',
+  },
+  toggleButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ccc',
+  },
+  toggleButtonActive: {
+    backgroundColor: '#333',
+    borderColor: '#555',
+  },
+  toggleButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   aboutCard: {
     backgroundColor: '#e8e8e8',
